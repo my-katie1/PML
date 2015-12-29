@@ -1,0 +1,148 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Katie Lee"
+date: "December 25, 2015"
+output: word_document
+---
+
+**Introduction**
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+Class A - Exactly according to the classification
+Class B - Throwing the elbows to the front
+Class C - Lifting the dumbbell only halfway
+Class D - Lowering the dumbbell only halfway
+Class E - Throwing the hips to the front
+
+The goal of this assignment is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+
+The training data for this project are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. For more information, see the section on the Weight Lifting Exercise Dataset.
+
+**Data Processing**
+The data are imported and analysed as follow:
+```{r}
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training = read.csv(url(trainUrl), na.strings = c("NA", ""))
+testing <- read.csv(url(testUrl), na.strings = c("NA", ""))
+dim(training); dim(testing)
+```
+
+There are 19622 records with 160 variables in the training data. The variable which we will be predicting on is classe, and the data is split up between the five classes. The last column in the data frame (column 160) contains the values A to E of the classe variable.
+
+Most of the variables (152 out of 160) correspond to sensor readings for one of the four sensors. Those sensor-reading variable names (columns 8 to 159) include one of the following strings to identify the corresponding sensor:
+_belt   _arm   _dumbbell   _forearm
+
+The first seven columns contain:
+- Column 1: the row index (not really a variable).
+- Column 2: the user_name variable; that is, the name of the person performing the exercise.
+- Columns 3 to 7: variables related to the time window for that particular sensor reading.
+
+**Data Cleaning**
+Based on analysis above, the data requires some basic clean-up by removing columns 1 to 6, which are there just for information and reference purposes.
+
+```{r}
+training <- training[, 7:160]
+testing  <- testing[, 7:160]
+```
+
+Remove columns that are mostly NA
+```{r}
+is_data  <- apply(!is.na(training), 2, sum) > 19621  # which is the number of observations
+training <- training[, is_data]
+testing  <- testing[, is_data]
+```
+
+
+**Data Partioning**
+The training data is split into two for cross validation purposes. Randomly subsample 60% of the set for training purpose (actual model building) and 40% for testing, evaluation and accuracy measurement.
+
+Load the relevant libraries
+```{r}
+library(caret)
+```
+
+```{r}
+set.seed(12345)
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+dim(myTraining); dim(myTesting)
+```
+
+We can identify the "zero covariates" and remove them from both myTraining and myTesting data set
+
+```{r}
+nzv <- nearZeroVar(myTraining, saveMetrics=TRUE)
+myTraining <- myTraining[,nzv$nzv==FALSE]
+
+nzv<- nearZeroVar(myTesting,saveMetrics=TRUE)
+myTesting <- myTesting[,nzv$nzv==FALSE]
+dim(myTraining); dim(myTesting)
+```
+
+This step didn't do anything as the earlier removal of NA was sufficient to clean the data. We are satisfied that we now have 53 clean covariates to build a model for classe (which is the 54th column of the data set).
+
+**Building The Model**
+Many different method of classifications can be used, it was determined that random forest would yield the best results. 
+
+```{r}
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+```
+
+*Prediction with Decision Tree*
+
+```{r}
+modFitA1 <- rpart(classe~., data=myTraining, method="class")
+prp(modFitA1)
+```
+
+We will not investigate tree classifiers further as the Random Forest algorithm will prove very satisfactory.
+
+*Prediction with Random Forest*
+
+```{r}
+set.seed(12345)
+modFitB1 <- randomForest(classe ~. , data=myTraining)
+predictionsB1 <- predict(modFitB1, myTesting, type = "class")
+confusionMatrix(predictionsB1, myTesting$classe)
+```
+
+*Estimation of out-of-sample error rate*
+Random Forests gave an Accuracy in the myTesting dataset of 99.64%. The expected out-of-sample error is 100-99.64 = 0.36%.
+
+```{r, echo=FALSE}
+plot(modFitB1)
+```
+
+**Generating files for submission** 
+Finally, using the provided Test Set out-of-sample error.
+
+For Random Forests we use the following formula, which yielded a much better prediction in in-sample:
+
+```{r}
+predictions <- predict(modFitB1, newdata=testing)
+testing$classe <- predictions
+
+```
+
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictions)
+```
